@@ -1,0 +1,12 @@
+# Scraper output
+output.txt
+results.json
+gmapsdata/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

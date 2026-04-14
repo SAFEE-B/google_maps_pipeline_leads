@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx jest:*)",
+      "Bash(npm test:*)",
+      "Bash(node -e \"const mod = require\\('./src/queues/processors/dockerScraper'\\); console.log\\('Exports:', Object.keys\\(mod\\)\\); console.log\\('Function exists:', typeof mod.groupQueriesByBusinessType === 'function'\\);\")",
+      "Bash(node -e ':*)",
+      "Bash(node -e \"var p = 'C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\safee'; var out = p.replace\\(/[\\\\\\\\\\\\\\\\]/g, '/'\\); console.log\\(out\\);\")",
+      "Bash(node --input-type=module)",
+      "Bash(node -e \"var f = function\\(p\\) { return p.split\\('\\\\\\\\\\\\\\\\'\\).join\\('/'\\); }; console.log\\(f\\('C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\safee\\\\\\\\\\\\\\\\Desktop\\\\\\\\\\\\\\\\Outputs'\\)\\);\")",
+      "Bash(node tmp_path_test.js)",
+      "Bash(rm tmp_path_test.js)",
+      "Bash(node tmp_csv_test.js)",
+      "Bash(rm tmp_csv_test.js)",
+      "Bash(node tmp_cleanup_test.js)",
+      "Bash(rm tmp_cleanup_test.js)",
+      "Bash(node -e \"var m = require\\('./src/queues/processors/dockerScraper'\\); var src = require\\('fs'\\).readFileSync\\('./src/queues/processors/dockerScraper.js','utf8'\\); console.log\\('DOCKER_SCRAPER_IMAGE fallback:', src.includes\\(\\\\\"'gosom/google-maps-scraper'\\\\\"\\)\\); console.log\\('DOCKER_SCRAPER_DEPTH fallback:', src.includes\\(\\\\\"'1'\\\\\"\\)\\); console.log\\('DOCKER_SCRAPER_CONCURRENCY fallback:', src.includes\\(\\\\\"'4'\\\\\"\\)\\); console.log\\('sanitized filename pattern:', src.includes\\('temp_keywords_\\\\${sanitized}.txt'\\)\\); console.log\\('ENOENT handled:', src.includes\\(\\\\\"err.code === 'ENOENT'\\\\\"\\)\\); console.log\\('non-zero exit reject:', src.includes\\('exited with code \\\\${code}'\\)\\);\")",
+      "Bash(node -e \"require\\('./src/queues/processors/scraperProcessor.js'\\)\")",
+      "Bash(docker info:*)",
+      "Bash(docker context ls:*)"
+    ]
+  }
+}
