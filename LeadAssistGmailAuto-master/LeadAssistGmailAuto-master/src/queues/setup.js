@@ -259,9 +259,9 @@ async function setupQueues() {
           },
         },
         settings: {
-          lockDuration: 1800000, // 30 minutes — Docker scraper can take 15-20 min for large query sets
-          stalledInterval: 60000, // Check for stalled jobs every 60s (default is 30s)
-          maxStalledCount: 0,    // Never mark as stalled — the job is just slow, not dead
+          lockDuration: 86400000, // 24 hours — never time out a running scrape job
+          stalledInterval: 300000, // Check for stalled jobs every 5 minutes
+          maxStalledCount: 0,      // Never mark as stalled
         }
       });
       queueLogger.info('✅ Scraper queue created successfully using Bull and Redis.');
