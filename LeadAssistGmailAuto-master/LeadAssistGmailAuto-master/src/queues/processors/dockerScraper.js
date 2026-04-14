@@ -123,6 +123,9 @@ async function executeDockerScraperForType(businessType, keywords, outputsDir) {
   await fs.writeFile(keywordsFile, keywords.join('\n'), 'utf8');
   scraperLogger.info(`Written ${keywords.length} keywords for "${businessType}" to ${keywordsFile}`);
 
+  // Pre-create the output CSV so Docker can write to it without needing dir-create permission
+  await fs.writeFile(outputCsvFile, '', 'utf8');
+
   // Build Docker args
   // Use Windows-style absolute paths with forward slashes for Docker volume mounts
   const winToDockerPath = (p) => p.replace(/\\/g, '/');
