@@ -109,10 +109,14 @@ async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concu
       }
     });
 
-    proc.on('exit', (code) => {
+    proc.on('exit', (code, signal) => {
       clearTimeout(timeoutId);
       scraperLogger.info(`[docker process EVENT] 'exit' event fired with code: ${code}`);
-      resolve(code);
+      
+      // If code is null, it means the process was terminated by a signal (our SIGKILL)
+      // Since we only SIGKILL when scrapemate is officially finished, we treat this as a complete success (0)!
+      const finalCode = (code === null) ? 0 : code;
+      resolve(finalCode);
     });
     proc.on('close', (code) => {
       scraperLogger.info(`[docker process EVENT] 'close' event fired with code: ${code}`);
