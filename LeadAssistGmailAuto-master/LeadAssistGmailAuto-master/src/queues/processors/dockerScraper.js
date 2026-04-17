@@ -80,21 +80,29 @@ async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concu
   return new Promise((resolve, reject) => {
     const proc = spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
+    const timeoutMinutes = parseInt(process.env.DOCKER_SCRAPER_TIMEOUT_MINUTES, 10) || 120;
+    const timeoutMs = timeoutMinutes * 60 * 1000;
+
     const timeoutId = setTimeout(() => {
       proc.kill();
-      scraperLogger.warn('Docker process timed out after 2 hours');
+      scraperLogger.warn(`Docker process timed out after ${timeoutMinutes} minutes`);
       resolve(-1); // Return error code instead of reject, to skip batch and continue
-    }, 7200 * 1000);
+    }, timeoutMs);
 
     proc.stdout.on('data', (d) => scraperLogger.info(`[docker] ${d.toString().trim()}`));
     proc.stderr.on('data', (d) => scraperLogger.warn(`[docker] ${d.toString().trim()}`));
 
     proc.on('exit', (code) => {
       clearTimeout(timeoutId);
+      scraperLogger.info(`[docker process EVENT] 'exit' event fired with code: ${code}`);
       resolve(code);
+    });
+    proc.on('close', (code) => {
+      scraperLogger.info(`[docker process EVENT] 'close' event fired with code: ${code}`);
     });
     proc.on('error', (err) => {
       clearTimeout(timeoutId);
+      scraperLogger.error(`[docker process EVENT] 'error' fired: ${err.message}`);
       if (err.code === 'ENOENT') reject(new Error('Docker is not running or not installed. Please start Docker Desktop.'));
       else reject(new Error(`Failed to start Docker: ${err.message}`));
     });
