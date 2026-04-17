@@ -10,10 +10,7 @@ const googleSheetsWorkflowService = require('../../services/googleSheetsWorkflow
 const LeadOptimizationService = require('../../services/leadOptimizationService');
 const {
   groupQueriesByBusinessType,
-  executeDockerScraperForType,
-  readAndMapCsvFile,
-  writeMergedCsv,
-  cleanupTempFiles,
+  executeDockerScraper,
 } = require('./dockerScraper');
 
 const business_filters = {
@@ -405,74 +402,6 @@ async function scraperProcessor(job) {
 
     throw error;
   }
-}
-
-/**
- * Replaces executePythonScraper. Runs the gosom/google-maps-scraper Docker
- * image once per business type, maps results to pipeline CSV format,
- * and writes the merged output to LeadsApart.csv.
- *
- * @param {Object} job  Bull job object
- * @param {Array<{businessType: string, query: string}>} optimizedQueries
- */
-async function executeDockerScraper(job, optimizedQueries) {
-  let outputsDir;
-  if (process.env.LEADS_APART_FILE) {
-    outputsDir = path.dirname(path.join(process.cwd(), process.env.LEADS_APART_FILE));
-  } else {
-    outputsDir = path.join(process.cwd(), './Outputs');
-  }
-
-  // Ensure outputs directory exists
-  await fs.mkdir(outputsDir, { recursive: true });
-
-  // Clean up any stale temp files from a previous crashed run
-  await cleanupTempFiles(outputsDir);
-
-  const groups = groupQueriesByBusinessType(optimizedQueries);
-  const businessTypes = Object.keys(groups);
-
-  scraperLogger.info(`Running Docker scraper for ${businessTypes.length} business type(s): ${businessTypes.join(', ')}`);
-
-  const allRows = [];
-
-  for (let i = 0; i < businessTypes.length; i++) {
-    const businessType = businessTypes[i];
-    const keywords = groups[businessType];
-
-    try {
-      const csvPath = await executeDockerScraperForType(businessType, keywords, outputsDir);
-      const rows = await readAndMapCsvFile(csvPath, businessType);
-      allRows.push(...rows);
-      scraperLogger.info(`"${businessType}": ${rows.length} results`);
-    } catch (err) {
-      scraperLogger.error(`Docker scraper failed for "${businessType}": ${err.message}`);
-      // Continue with remaining business types — partial results are better than none
-    }
-
-    // Update progress proportionally across the 20-70% range used by the scraper step
-    if (job.progress) {
-      const progressPct = 20 + Math.floor(((i + 1) / businessTypes.length) * 50);
-      job.progress(progressPct);
-    }
-  }
-
-  // Write merged CSV to LeadsApart.csv
-  let csvFile;
-  if (process.env.LEADS_APART_FILE) {
-    csvFile = path.join(process.cwd(), process.env.LEADS_APART_FILE);
-  } else {
-    csvFile = path.join(process.cwd(), './Outputs/LeadsApart.csv');
-  }
-
-  await writeMergedCsv(allRows, csvFile);
-
-  // Clean up temp files
-  await cleanupTempFiles(outputsDir);
-
-  scraperLogger.info(`Docker scraper complete. Total rows written: ${allRows.length}`);
-
-  return { stdout: '', stderr: '', exitCode: 0 };
 }
 
 async function processScrapedData(jobId) {

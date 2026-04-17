@@ -17,7 +17,8 @@
       "Bash(node -e \"var m = require\\('./src/queues/processors/dockerScraper'\\); var src = require\\('fs'\\).readFileSync\\('./src/queues/processors/dockerScraper.js','utf8'\\); console.log\\('DOCKER_SCRAPER_IMAGE fallback:', src.includes\\(\\\\\"'gosom/google-maps-scraper'\\\\\"\\)\\); console.log\\('DOCKER_SCRAPER_DEPTH fallback:', src.includes\\(\\\\\"'1'\\\\\"\\)\\); console.log\\('DOCKER_SCRAPER_CONCURRENCY fallback:', src.includes\\(\\\\\"'4'\\\\\"\\)\\); console.log\\('sanitized filename pattern:', src.includes\\('temp_keywords_\\\\${sanitized}.txt'\\)\\); console.log\\('ENOENT handled:', src.includes\\(\\\\\"err.code === 'ENOENT'\\\\\"\\)\\); console.log\\('non-zero exit reject:', src.includes\\('exited with code \\\\${code}'\\)\\);\")",
       "Bash(node -e \"require\\('./src/queues/processors/scraperProcessor.js'\\)\")",
       "Bash(docker info:*)",
-      "Bash(docker context ls:*)"
+      "Bash(docker context ls:*)",
+      "Bash(node -e \"require\\('./src/queues/processors/dockerScraper.js'\\); console.log\\('OK'\\)\")"
     ]
   }
 }
