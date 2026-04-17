@@ -60,11 +60,23 @@ async function resetRaw(rawResultsFile) {
 }
 
 // Run docker for one batch — exactly mirrors run_docker() in run_scraper.py
+function killContainer(containerName) {
+  return new Promise((resolve) => {
+    const proc = spawn('docker', ['kill', containerName], { stdio: 'ignore' });
+    proc.on('exit', resolve);
+    proc.on('error', resolve);
+  });
+}
+
 async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concurrency, inactivity) {
   const winToDockerPath = (p) => p.replace(/\\/g, '/');
 
+  // Use a fixed container name so we can kill it by name on cleanup/timeout
+  const containerName = `scraper-job-${Date.now()}`;
+
   const dockerArgs = [
     'run', '--rm',
+    '--name', containerName,
     '-v', `${winToDockerPath(scraperQueriesFile)}:/scraper_queries.txt`,
     '-v', `${winToDockerPath(rawResultsFile)}:/raw_results.csv`,
     image,
@@ -83,38 +95,50 @@ async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concu
     const timeoutMinutes = parseInt(process.env.DOCKER_SCRAPER_TIMEOUT_MINUTES, 10) || 120;
     const timeoutMs = timeoutMinutes * 60 * 1000;
 
-    const timeoutId = setTimeout(() => {
-      proc.kill();
+    const cleanup = async () => {
+      await killContainer(containerName);
+      proc.kill('SIGKILL');
+    };
+
+    // Gracefully stop container if the Node process exits (Ctrl+C, crash, etc.)
+    const shutdownHandler = () => { killContainer(containerName); };
+    process.once('SIGINT', shutdownHandler);
+    process.once('SIGTERM', shutdownHandler);
+
+    const removeHandlers = () => {
+      process.removeListener('SIGINT', shutdownHandler);
+      process.removeListener('SIGTERM', shutdownHandler);
+    };
+
+    const timeoutId = setTimeout(async () => {
       scraperLogger.warn(`Docker process timed out after ${timeoutMinutes} minutes`);
-      resolve(-1); // Return error code instead of reject, to skip batch and continue
+      removeHandlers();
+      await cleanup();
+      resolve(-1);
     }, timeoutMs);
 
     proc.stdout.on('data', (d) => {
       const output = d.toString().trim();
       scraperLogger.info(`[docker] ${output}`);
-      // Fix for Playwright zombie process hang
       if (output.includes('"message":"scrapemate exited"')) {
         scraperLogger.warn('Scrapemate finished! Force-killing zombie container to continue...');
-        proc.kill('SIGKILL');
+        cleanup();
       }
     });
 
     proc.stderr.on('data', (d) => {
       const output = d.toString().trim();
       scraperLogger.warn(`[docker] ${output}`);
-      // Fix for Playwright zombie process hang
       if (output.includes('"message":"scrapemate exited"')) {
         scraperLogger.warn('Scrapemate finished! Force-killing zombie container to continue...');
-        proc.kill('SIGKILL');
+        cleanup();
       }
     });
 
     proc.on('exit', (code, signal) => {
       clearTimeout(timeoutId);
+      removeHandlers();
       scraperLogger.info(`[docker process EVENT] 'exit' event fired with code: ${code}`);
-      
-      // If code is null, it means the process was terminated by a signal (our SIGKILL)
-      // Since we only SIGKILL when scrapemate is officially finished, we treat this as a complete success (0)!
       const finalCode = (code === null) ? 0 : code;
       resolve(finalCode);
     });
@@ -123,6 +147,7 @@ async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concu
     });
     proc.on('error', (err) => {
       clearTimeout(timeoutId);
+      removeHandlers();
       scraperLogger.error(`[docker process EVENT] 'error' fired: ${err.message}`);
       if (err.code === 'ENOENT') reject(new Error('Docker is not running or not installed. Please start Docker Desktop.'));
       else reject(new Error(`Failed to start Docker: ${err.message}`));
