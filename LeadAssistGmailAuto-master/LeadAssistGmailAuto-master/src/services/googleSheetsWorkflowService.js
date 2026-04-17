@@ -1031,7 +1031,7 @@ class GoogleSheetsWorkflowService {
         type_of_business: lead.type_of_business || '',
         sub_category: lead.sub_category || '',
         name_of_business: lead.name_of_business || '',
-        website: lead.website || '',
+        website: lead.website || 'No website',
         num_reviews: lead.num_reviews || '',
         rating: lead.rating || '',
         latest_review: lead.latest_review || '',
