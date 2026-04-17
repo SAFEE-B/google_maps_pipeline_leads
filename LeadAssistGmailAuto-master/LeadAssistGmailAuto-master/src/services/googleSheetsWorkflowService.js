@@ -545,7 +545,7 @@ class GoogleSheetsWorkflowService {
                 AND (
                   LOWER(city) = LOWER(?) 
                   OR LOWER(city) LIKE LOWER(?)
-                  OR (LOWER(business_address) LIKE LOWER(?) AND LOWER(business_address) LIKE LOWER(?))
+                  OR LOWER(business_address) LIKE LOWER(?)
                   OR LOWER(state) = LOWER(?)
                 )
               )
@@ -557,7 +557,6 @@ class GoogleSheetsWorkflowService {
               location,                    // Exact city match
               `${location}%`,              // City prefix match
               `%${location}%`,             // Address contains location
-              `%united states%`,           // Ensure it's in US
               location.length === 2 ? location : `%${location}%`  // State code or state name
             );
           }
@@ -659,8 +658,6 @@ class GoogleSheetsWorkflowService {
 
     // Apply filtering logic (same as scraperProcessor)
     const MIN_REVIEW_COUNT = 4;
-    const REQUIRED_REVIEW_TEXT = "ago";
-    const US_ADDRESS_MARKER = "United States";
     
     let preSubcategoryCount = leads.length;
     let postBasicFilterCount = 0;
@@ -705,24 +702,25 @@ class GoogleSheetsWorkflowService {
     
     const filteredLeads = leads.filter(lead => {
       // 1. Basic field validation
-      if (!lead.phone_number || !lead.business_address) return false;
+      if (!lead.phone_number || String(lead.phone_number).trim() === '' || !lead.business_address || String(lead.business_address).trim() === '') return false;
+
+      // 1.5 Address Country Check
+      const addressStrLower = String(lead.business_address).toLowerCase();
+      if (!addressStrLower.includes('united states') && !addressStrLower.includes('canada')) return false;
       
-      // 2. Address format filter (must contain a comma)
-      if (!lead.business_address.includes(',')) return false;
+      // 2. Rating cannot be empty
+      if (!lead.rating || String(lead.rating).trim() === '') return false;
       
-      // 3. Review count filter
+      // 3. Latest Review Date cannot be empty
+      if (!lead.latest_review || String(lead.latest_review).trim() === '') return false;
+      
+      // 4. Review count filter
       const numReviews = parseInt(String(lead.num_reviews || 0).replace(/,/g, ''), 10);
       if (isNaN(numReviews) || numReviews < MIN_REVIEW_COUNT) return false;
       
-      // 4. Review date filter ("ago")
-      if (!lead.latest_review || !String(lead.latest_review).toLowerCase().includes(REQUIRED_REVIEW_TEXT)) return false;
-      
-      // 5. Location filter (US filter)
-      if (!String(lead.business_address).toLowerCase().includes(US_ADDRESS_MARKER.toLowerCase())) return false;
-      
       postBasicFilterCount++;
       
-      // 6. CRITICAL: Apply subcategory filtering based on business type requirements
+      // 5. CRITICAL: Apply subcategory filtering based on business type requirements
       const leadBusinessType = (lead.type_of_business || '').toLowerCase().trim();
       const leadSubCategory = (lead.sub_category || '').toLowerCase().trim();
       
@@ -1222,7 +1220,7 @@ class GoogleSheetsWorkflowService {
           leadCity.startsWith(searchLocation) ||           // City prefix match
           leadState === searchLocation ||                   // Exact state match
           (searchLocation.length === 2 && leadState.includes(searchLocation)) ||  // State code match
-          (leadAddress.includes(searchLocation) && leadAddress.includes('united states'))  // Address contains location and is in US
+          leadAddress.includes(searchLocation)             // Address contains location
         );
       }
     });

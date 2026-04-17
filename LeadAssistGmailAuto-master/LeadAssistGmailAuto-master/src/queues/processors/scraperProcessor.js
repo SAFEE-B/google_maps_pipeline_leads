@@ -955,38 +955,24 @@ function applyLeadFilters(lead, primaryJobTypesLowerCase) {
     const addressStr = String(addressRaw);
 
 
-    // 1. Placeholder Value Checks (case-insensitive for string placeholders)
+    // 1. Placeholder & Blank Value Checks (case-insensitive for string placeholders)
     if (!phoneStr || phoneStr.toLowerCase() === UNWANTED_PLACEHOLDERS['Phone_Number'].toLowerCase()) return false;
     if (!addressStr || addressStr.toLowerCase() === UNWANTED_PLACEHOLDERS['Business_Address'].toLowerCase()) return false;
-    if (reviewsStr.toLowerCase() === UNWANTED_PLACEHOLDERS['#_of_Reviews'].toLowerCase()) return false;
-    if (ratingStr.toLowerCase() === UNWANTED_PLACEHOLDERS['Rating'].toLowerCase()) return false;
-    if (latestReviewStr.toLowerCase() === UNWANTED_PLACEHOLDERS['Latest_Review'].toLowerCase()) return false;
+    if (!reviewsStr || reviewsStr.trim() === '' || reviewsStr.toLowerCase() === UNWANTED_PLACEHOLDERS['#_of_Reviews'].toLowerCase()) return false;
+    if (!ratingStr || ratingStr.trim() === '' || ratingStr.toLowerCase() === UNWANTED_PLACEHOLDERS['Rating'].toLowerCase()) return false;
+    if (!latestReviewStr || latestReviewStr.trim() === '' || latestReviewStr.toLowerCase() === UNWANTED_PLACEHOLDERS['Latest_Review'].toLowerCase()) return false;
 
-
-    // 2. Address Format Filter (must contain a comma)
-    if (!addressStr.includes(',')) {
-        scraperLogger.debug(`Filtering out lead (no comma in address): ${getLeadValue(lead, 'Name of Business', 'name_of_business')}`);
+    // 1.5 Address Country Check
+    const addressStrLower = addressStr.toLowerCase();
+    if (!addressStrLower.includes('united states') && !addressStrLower.includes('canada')) {
+        scraperLogger.debug(`Filtering out lead (not US or Canada): ${getLeadValue(lead, 'Name of Business', 'name_of_business')}`);
         return false;
     }
 
-    // 3. Review Count Filter
+    // 2. Review Count Filter
     const numReviews = parseInt(reviewsStr.replace(/,/g, ''), 10);
     if (isNaN(numReviews) || numReviews < MIN_REVIEW_COUNT) {
         scraperLogger.debug(`Filtering out lead (review count < ${MIN_REVIEW_COUNT}): ${getLeadValue(lead, 'Name of Business', 'name_of_business')}`);
-        return false;
-    }
-
-    // 4. Review Date Filter ("ago")
-    if (!latestReviewStr.toLowerCase().includes(REQUIRED_REVIEW_TEXT)) {
-         scraperLogger.debug(`Filtering out lead (latest review missing '${REQUIRED_REVIEW_TEXT}'): ${getLeadValue(lead, 'Name of Business', 'name_of_business')}`);
-        return false;
-    }
-    // Trim text after "ago" - This modification should happen *after* filtering, before saving/outputting.
-    // For filtering, we just check for presence.
-
-    // 5. Location Filter (US_Filter)
-    if (!addressStr.toLowerCase().includes(US_ADDRESS_MARKER.toLowerCase())) {
-        scraperLogger.debug(`Filtering out lead (address not in ${US_ADDRESS_MARKER}): ${getLeadValue(lead, 'Name of Business', 'name_of_business')}`);
         return false;
     }
     
