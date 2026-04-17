@@ -156,6 +156,20 @@ func (e *Entry) Validate() error {
 	return nil
 }
 
+func (e *Entry) LatestReviewDate() string {
+	for _, r := range e.UserReviewsExtended {
+		if r.When != "" {
+			return r.When
+		}
+	}
+	for _, r := range e.UserReviews {
+		if r.When != "" {
+			return r.When
+		}
+	}
+	return ""
+}
+
 func (e *Entry) CsvHeaders() []string {
 	return []string{
 		"input_id",
@@ -192,6 +206,7 @@ func (e *Entry) CsvHeaders() []string {
 		"user_reviews",
 		"user_reviews_extended",
 		"emails",
+		"latest_review_date",
 	}
 }
 
@@ -231,6 +246,7 @@ func (e *Entry) CsvRow() []string {
 		stringify(e.UserReviews),
 		stringify(e.UserReviewsExtended),
 		stringSliceToString(e.Emails),
+		e.LatestReviewDate(),
 	}
 }
 

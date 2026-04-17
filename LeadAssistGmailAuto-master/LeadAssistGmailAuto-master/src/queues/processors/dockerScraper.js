@@ -64,17 +64,6 @@ function convertToRelativeDate(when) {
  * @returns {Object} Row in pipeline format
  */
 function mapRowToPipelineFormat(row, businessType) {
-  let latestReviewDate = 'No review date';
-
-  try {
-    const reviews = JSON.parse(row.user_reviews || '[]');
-    if (Array.isArray(reviews) && reviews.length > 0 && reviews[0].When) {
-      latestReviewDate = convertToRelativeDate(reviews[0].When);
-    }
-  } catch (_) {
-    // malformed JSON — leave as 'No review date'
-  }
-
   return {
     'Type of Business': businessType,
     'Sub-Category': row.category || '',
@@ -82,10 +71,42 @@ function mapRowToPipelineFormat(row, businessType) {
     'Website': row.website || '',
     '# of Reviews': row.review_count || '',
     'Rating': row.review_rating || '',
-    'Latest Review Date': latestReviewDate,
+    'Latest Review Date': row.latest_review_date || 'No review date',
     'Business Address': row.address || '',
     'Phone Number': row.phone || '',
   };
+}
+
+const SCRAPER_DOCKERFILE_DIR = 'C:/Users/safee/Desktop/WORk/gmap_scrpaaer_gosom/google-maps-scraper';
+
+async function ensureImageExists(image) {
+  const check = await new Promise((resolve) => {
+    const proc = spawn('docker', ['images', '-q', image], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('exit', () => resolve(out.trim()));
+  });
+
+  if (check) return; // image exists
+
+  scraperLogger.info(`Docker image "${image}" not found — building from ${SCRAPER_DOCKERFILE_DIR}`);
+
+  await new Promise((resolve, reject) => {
+    const proc = spawn('docker', ['build', '-t', image, SCRAPER_DOCKERFILE_DIR], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    proc.stdout.on('data', (d) => scraperLogger.info(`[docker:build] ${d.toString().trim()}`));
+    proc.stderr.on('data', (d) => scraperLogger.info(`[docker:build] ${d.toString().trim()}`));
+    proc.on('exit', (code) => {
+      if (code === 0) {
+        scraperLogger.info(`Docker image "${image}" built successfully`);
+        resolve();
+      } else {
+        reject(new Error(`Failed to build Docker image "${image}" (exit code ${code})`));
+      }
+    });
+    proc.on('error', (err) => reject(new Error(`Failed to start Docker build: ${err.message}`)));
+  });
 }
 
 /**
@@ -109,15 +130,16 @@ function sanitizeForFilename(businessType) {
  * @returns {Promise<string>}  Absolute path to the output CSV file
  */
 async function executeDockerScraperForType(businessType, keywords, outputsDir) {
-  const image = process.env.DOCKER_SCRAPER_IMAGE || 'gosom/google-maps-scraper';
+  const image = process.env.DOCKER_SCRAPER_IMAGE || 'google-maps-scraper';
   const depth = process.env.DOCKER_SCRAPER_DEPTH || '1';
-  const concurrency = process.env.DOCKER_SCRAPER_CONCURRENCY || '4';
+  const concurrency = process.env.DOCKER_SCRAPER_CONCURRENCY || '3';
+  const inactivity = process.env.DOCKER_SCRAPER_INACTIVITY || '10m';
+  await ensureImageExists(image);
+
   const sanitized = sanitizeForFilename(businessType);
 
   const keywordsFile = path.join(outputsDir, `temp_keywords_${sanitized}.txt`);
   const outputCsvFile = path.join(outputsDir, `temp_${sanitized}.csv`);
-  const containerKeywordsPath = '/app/input.txt';
-  const containerOutputPath = `/app/outputs/temp_${sanitized}.csv`;
 
   // Write keywords file (one keyword per line)
   await fs.writeFile(keywordsFile, keywords.join('\n'), 'utf8');
@@ -126,28 +148,29 @@ async function executeDockerScraperForType(businessType, keywords, outputsDir) {
   // Pre-create the output CSV so Docker can write to it without needing dir-create permission
   await fs.writeFile(outputCsvFile, '', 'utf8');
 
-  // Build Docker args
   // Use Windows-style absolute paths with forward slashes for Docker volume mounts
   const winToDockerPath = (p) => p.replace(/\\/g, '/');
 
   const dockerArgs = [
     'run', '--rm',
-    '-v', `${winToDockerPath(keywordsFile)}:${containerKeywordsPath}`,
-    '-v', `${winToDockerPath(outputsDir)}:/app/outputs`,
+    '-v', `${winToDockerPath(keywordsFile)}:/scraper_queries.txt`,
+    '-v', `${winToDockerPath(outputCsvFile)}:/raw_results.csv`,
     image,
-    '-input', containerKeywordsPath,
-    '-results', containerOutputPath,
+    '-input', '/scraper_queries.txt',
+    '-results', '/raw_results.csv',
     '-depth', depth,
     '-c', concurrency,
+    '-exit-on-inactivity', inactivity,
   ];
 
   scraperLogger.info(`Running Docker scraper for "${businessType}": docker ${dockerArgs.join(' ')}`);
 
   await new Promise((resolve, reject) => {
     const proc = spawn('docker', dockerArgs, {
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    // Drain stdout/stderr to prevent pipe buffer backpressure blocking process exit
     proc.stdout.on('data', (data) => {
       scraperLogger.info(`[docker:${sanitized}] ${data.toString().trim()}`);
     });
@@ -156,7 +179,10 @@ async function executeDockerScraperForType(businessType, keywords, outputsDir) {
       scraperLogger.warn(`[docker:${sanitized}] ${data.toString().trim()}`);
     });
 
-    proc.on('close', (code) => {
+    // Use 'exit' not 'close' — exit fires when the process terminates regardless
+    // of whether stdio pipes are fully drained. 'close' can hang indefinitely
+    // when Docker produces large output that fills pipe buffers.
+    proc.on('exit', (code) => {
       if (code === 0) {
         scraperLogger.info(`Docker scraper for "${businessType}" completed successfully`);
         resolve();
