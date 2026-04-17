@@ -18,7 +18,8 @@ function groupQueriesByBusinessType(queries) {
   const groups = {};
   for (const q of queries) {
     if (!groups[q.businessType]) groups[q.businessType] = [];
-    groups[q.businessType].push(q.query);
+    const scraperLine = q.query.trim() + ' USA';
+    groups[q.businessType].push(scraperLine);
   }
   return groups;
 }
@@ -79,11 +80,21 @@ async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concu
   return new Promise((resolve, reject) => {
     const proc = spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
+    const timeoutId = setTimeout(() => {
+      proc.kill();
+      scraperLogger.warn('Docker process timed out after 2 hours');
+      resolve(-1); // Return error code instead of reject, to skip batch and continue
+    }, 7200 * 1000);
+
     proc.stdout.on('data', (d) => scraperLogger.info(`[docker] ${d.toString().trim()}`));
     proc.stderr.on('data', (d) => scraperLogger.warn(`[docker] ${d.toString().trim()}`));
 
-    proc.on('exit', (code) => resolve(code));
+    proc.on('exit', (code) => {
+      clearTimeout(timeoutId);
+      resolve(code);
+    });
     proc.on('error', (err) => {
+      clearTimeout(timeoutId);
       if (err.code === 'ENOENT') reject(new Error('Docker is not running or not installed. Please start Docker Desktop.'));
       else reject(new Error(`Failed to start Docker: ${err.message}`));
     });
