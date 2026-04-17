@@ -89,8 +89,25 @@ async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concu
       resolve(-1); // Return error code instead of reject, to skip batch and continue
     }, timeoutMs);
 
-    proc.stdout.on('data', (d) => scraperLogger.info(`[docker] ${d.toString().trim()}`));
-    proc.stderr.on('data', (d) => scraperLogger.warn(`[docker] ${d.toString().trim()}`));
+    proc.stdout.on('data', (d) => {
+      const output = d.toString().trim();
+      scraperLogger.info(`[docker] ${output}`);
+      // Fix for Playwright zombie process hang
+      if (output.includes('"message":"scrapemate exited"')) {
+        scraperLogger.warn('Scrapemate finished! Force-killing zombie container to continue...');
+        proc.kill('SIGKILL');
+      }
+    });
+
+    proc.stderr.on('data', (d) => {
+      const output = d.toString().trim();
+      scraperLogger.warn(`[docker] ${output}`);
+      // Fix for Playwright zombie process hang
+      if (output.includes('"message":"scrapemate exited"')) {
+        scraperLogger.warn('Scrapemate finished! Force-killing zombie container to continue...');
+        proc.kill('SIGKILL');
+      }
+    });
 
     proc.on('exit', (code) => {
       clearTimeout(timeoutId);
