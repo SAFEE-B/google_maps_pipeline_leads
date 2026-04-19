@@ -294,4 +294,5 @@ async function executeDockerScraper(job, optimizedQueries) {
 module.exports = {
   groupQueriesByBusinessType,
   executeDockerScraper,
+  convertToRelativeDate,
 };

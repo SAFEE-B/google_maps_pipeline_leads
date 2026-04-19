@@ -11,6 +11,7 @@ const LeadOptimizationService = require('../../services/leadOptimizationService'
 const {
   groupQueriesByBusinessType,
   executeDockerScraper,
+  convertToRelativeDate,
 } = require('./dockerScraper');
 
 const business_filters = {
@@ -769,12 +770,18 @@ async function saveNewLeadsToDatabase(leads, jobId, jobData) {
     // Clean/transform data for DB
     const numReviews = numReviewsRaw ? parseInt(String(numReviewsRaw).replace(/,/g, ''), 10) : null;
     const rating = ratingRaw ? parseFloat(String(ratingRaw)) : null;
-    
-    // Trim "Latest Review" to only include text up to and including "ago"
+
+    // Convert raw date (YYYY-M-D) to relative string if not already in "ago" format
     if (latestReview && typeof latestReview === 'string') {
+        if (!latestReview.toLowerCase().includes('ago')) {
+            latestReview = convertToRelativeDate(latestReview.trim());
+        }
+        // Trim to text up to and including "ago"
         const agoIndex = latestReview.toLowerCase().indexOf(REQUIRED_REVIEW_TEXT);
         if (agoIndex !== -1) {
             latestReview = latestReview.substring(0, agoIndex + REQUIRED_REVIEW_TEXT.length).trim();
+        } else {
+            latestReview = null;
         }
     } else {
         latestReview = null;
@@ -951,6 +958,10 @@ function applyLeadFilters(lead, primaryJobTypesLowerCase) {
     const reviewsStr = String(reviewsRaw);
     const ratingStr = String(ratingRaw);
     let latestReviewStr = String(latestReviewRaw);
+    // Convert raw date to relative format before filtering so "ago" check passes
+    if (latestReviewStr && !latestReviewStr.toLowerCase().includes('ago')) {
+        latestReviewStr = convertToRelativeDate(latestReviewStr.trim());
+    }
     const phoneStr = String(phoneRaw);
     const addressStr = String(addressRaw);
 
