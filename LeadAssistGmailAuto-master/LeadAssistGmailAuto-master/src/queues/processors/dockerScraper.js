@@ -28,6 +28,25 @@ function get(row, key) {
   return row[key] || '';
 }
 
+// Converts "YYYY-M-D" to "X days/weeks/months/years ago"
+function convertToRelativeDate(when) {
+  if (!when) return 'No review date';
+  const parts = String(when).split('-');
+  if (parts.length !== 3) return 'No review date';
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return 'No review date';
+  const reviewDate = new Date(year, month, day);
+  if (isNaN(reviewDate.getTime())) return 'No review date';
+  const diffDays = Math.floor((Date.now() - reviewDate) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return 'No review date';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+  return `${Math.floor(diffDays / 365)} years ago`;
+}
+
 async function ensureImageExists(image) {
   const check = await new Promise((resolve) => {
     const proc = spawn('docker', ['images', '-q', image], { stdio: ['ignore', 'pipe', 'ignore'] });
@@ -171,7 +190,7 @@ function appendResults(businessType, rawResultsFile, writeStream) {
           'Website':            get(row, 'website'),
           '# of Reviews':       get(row, 'review_count'),
           'Rating':             get(row, 'review_rating'),
-          'Latest Review Date': get(row, 'latest_review_date'),
+          'Latest Review Date': convertToRelativeDate(get(row, 'latest_review_date')),
           'Business Address':   get(row, 'address'),
           'Phone Number':       get(row, 'phone'),
         };

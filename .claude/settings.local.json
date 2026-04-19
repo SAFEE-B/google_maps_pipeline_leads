@@ -18,7 +18,9 @@
       "Bash(node -e \"require\\('./src/queues/processors/scraperProcessor.js'\\)\")",
       "Bash(docker info:*)",
       "Bash(docker context ls:*)",
-      "Bash(node -e \"require\\('./src/queues/processors/dockerScraper.js'\\); console.log\\('OK'\\)\")"
+      "Bash(node -e \"require\\('./src/queues/processors/dockerScraper.js'\\); console.log\\('OK'\\)\")",
+      "Bash(python3 *)",
+      "Bash(node *)"
     ]
   }
 }
