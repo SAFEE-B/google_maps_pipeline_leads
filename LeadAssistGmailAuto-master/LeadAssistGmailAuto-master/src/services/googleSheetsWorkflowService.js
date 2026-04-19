@@ -8,6 +8,7 @@ const googleSheetsService = require('./googleSheetsService');
 const gmailService = require('./gmailService');
 const { setupDatabase, runQuery, getOne, getAll } = require('../database/setup');
 const logger = require('../utils/logger');
+const { convertToRelativeDate } = require('../queues/processors/dockerScraper');
 
 // Sub-category filters for business type consolidation - CRITICAL for proper filtering
 const SUB_CATEGORY_FILTERS = {
@@ -929,11 +930,17 @@ class GoogleSheetsWorkflowService {
 
   cleanLatestReview(review) {
     if (!review) return '';
-    
-    const reviewStr = String(review);
+
+    let reviewStr = String(review).trim();
+
+    // Convert raw date (YYYY-M-D) to relative format if not already converted
+    if (!reviewStr.toLowerCase().includes('ago')) {
+      reviewStr = convertToRelativeDate(reviewStr);
+    }
+
     const agoIndex = reviewStr.toLowerCase().indexOf('ago');
     if (agoIndex !== -1) {
-      return reviewStr.substring(0, agoIndex + 3).trim(); // +3 for "ago"
+      return reviewStr.substring(0, agoIndex + 3).trim();
     }
     return reviewStr;
   }
