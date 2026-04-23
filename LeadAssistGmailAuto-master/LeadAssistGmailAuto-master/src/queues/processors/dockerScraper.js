@@ -87,7 +87,7 @@ function killContainer(containerName) {
   });
 }
 
-async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concurrency, inactivity) {
+async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, zoom, concurrency, inactivity) {
   const winToDockerPath = (p) => p.replace(/\\/g, '/');
 
   // Use a fixed container name so we can kill it by name on cleanup/timeout
@@ -102,6 +102,7 @@ async function runDocker(image, scraperQueriesFile, rawResultsFile, depth, concu
     '-input', '/scraper_queries.txt',
     '-results', '/raw_results.csv',
     '-depth', depth,
+    '-zoom', zoom,
     '-c', concurrency,
     '-exit-on-inactivity', inactivity,
   ];
@@ -184,15 +185,15 @@ function appendResults(businessType, rawResultsFile, writeStream) {
       .pipe(csv())
       .on('data', (row) => {
         const fields = {
-          'Type of Business':   businessType,
-          'Sub-Category':       get(row, 'category'),
-          'Name of Business':   get(row, 'title'),
-          'Website':            get(row, 'website'),
-          '# of Reviews':       get(row, 'review_count'),
-          'Rating':             get(row, 'review_rating'),
+          'Type of Business': businessType,
+          'Sub-Category': get(row, 'category'),
+          'Name of Business': get(row, 'title'),
+          'Website': get(row, 'website'),
+          '# of Reviews': get(row, 'review_count'),
+          'Rating': get(row, 'review_rating'),
           'Latest Review Date': convertToRelativeDate(get(row, 'latest_review_date')),
-          'Business Address':   get(row, 'address'),
-          'Phone Number':       get(row, 'phone'),
+          'Business Address': get(row, 'address'),
+          'Phone Number': get(row, 'phone'),
         };
         // QUOTE_MINIMAL: only quote if value contains comma, quote, or newline
         const values = PIPELINE_HEADERS.map((h) => {
@@ -213,7 +214,8 @@ function appendResults(businessType, rawResultsFile, writeStream) {
 // Main orchestrator — mirrors the top-level logic of run_scraper.py exactly
 async function executeDockerScraper(job, optimizedQueries) {
   const image = process.env.DOCKER_SCRAPER_IMAGE || 'google-maps-scraper';
-  const depth = process.env.DOCKER_SCRAPER_DEPTH || '1';
+  const depth = process.env.DOCKER_SCRAPER_DEPTH || '10';
+  const zoom = process.env.DOCKER_SCRAPER_ZOOM || '5';
   const concurrency = process.env.DOCKER_SCRAPER_CONCURRENCY || '3';
   const inactivity = process.env.DOCKER_SCRAPER_INACTIVITY || '10m';
 
@@ -258,7 +260,7 @@ async function executeDockerScraper(job, optimizedQueries) {
       // Reset raw results — same as reset_raw() in run_scraper.py
       await resetRaw(rawResultsFile);
 
-      const code = await runDocker(image, scraperQueriesFile, rawResultsFile, depth, concurrency, inactivity);
+      const code = await runDocker(image, scraperQueriesFile, rawResultsFile, depth, zoom, concurrency, inactivity);
       scraperLogger.info(`Docker exit code: ${code}`);
 
       if (code !== 0) {
