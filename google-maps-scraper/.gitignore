@@ -1,4 +1,8 @@
 cache/
+# but keep the vendored scrapemate cache adapters — they are build-required source,
+# not a runtime cache dir. The broad `cache/` rule above was excluding them.
+!vendor-scrapemate/adapters/cache/
+!vendor-scrapemate/adapters/cache/**
 vendor
 bin
 webdata/
