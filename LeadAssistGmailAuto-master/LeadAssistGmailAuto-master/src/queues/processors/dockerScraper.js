@@ -7,7 +7,12 @@ const path = require('path');
 const csv = require('csv-parser');
 const { scraperLogger } = require('../../utils/logger');
 
-const SCRAPER_DOCKERFILE_DIR = 'C:/Users/safee/Desktop/WORk/gmap_scrpaaer_gosom/google-maps-scraper';
+// Scraper source lives at the repo root (<repo-root>/google-maps-scraper), which is 5
+// levels up from this file (.../src/queues/processors). Anchored to __dirname so it
+// resolves correctly wherever the repo is cloned — no per-machine editing needed.
+// Override with the DOCKER_SCRAPER_DOCKERFILE_DIR env var if the layout ever differs.
+const SCRAPER_DOCKERFILE_DIR = process.env.DOCKER_SCRAPER_DOCKERFILE_DIR
+  || path.resolve(__dirname, '../../../../../google-maps-scraper');
 
 const PIPELINE_HEADERS = [
   'Type of Business', 'Sub-Category', 'Name of Business', 'Website',
@@ -213,8 +218,8 @@ function appendResults(businessType, rawResultsFile, writeStream) {
 
 // Main orchestrator — mirrors the top-level logic of run_scraper.py exactly
 async function executeDockerScraper(job, optimizedQueries) {
-  const image = process.env.DOCKER_SCRAPER_IMAGE || 'google-maps-scraper';
-  const depth = process.env.DOCKER_SCRAPER_DEPTH || '10';
+  const image = process.env.DOCKER_SCRAPER_IMAGE || 'google_maps_scraper:1.13.0';
+  const depth = process.env.DOCKER_SCRAPER_DEPTH || '1';
   const zoom = process.env.DOCKER_SCRAPER_ZOOM || '5';
   const concurrency = process.env.DOCKER_SCRAPER_CONCURRENCY || '3';
   const inactivity = process.env.DOCKER_SCRAPER_INACTIVITY || '10m';

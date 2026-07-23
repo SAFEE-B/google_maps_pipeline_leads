@@ -534,15 +534,30 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 						}
 
 						// Time/date - multiple selectors
-						const timeSelectors = ['.rsqaWe', '.DU9Pgb', '.tTVLSc', '.review-date', '.dehysf'];
+						const timeSelectors = [
+							'.rsqaWe', '.DU9Pgb', '.tTVLSc', '.review-date', '.dehysf',
+							'.xRkPPb', '.y3Ibjb', '.OOk6H', '.lTi8oc span',
+							'span[data-timestamp]', 'time', '[datetime]',
+						];
 						let relativeTime = '';
 						for (const sel of timeSelectors) {
 							const el = element.querySelector(sel);
 							if (el) {
+								// Prefer datetime/data-timestamp attributes first
+								const dt = el.getAttribute('datetime') || el.getAttribute('data-timestamp') || '';
+								if (dt) { relativeTime = dt; break; }
 								const text = el.textContent?.trim() || '';
-								// Look for time-related text (ago, month, year, etc)
+								if (text) { relativeTime = text; break; }
+							}
+						}
+						// Last resort: scan all spans inside the review for a time-like string
+						if (!relativeTime) {
+							const spans = element.querySelectorAll('span');
+							for (const span of spans) {
+								const text = span.textContent?.trim() || '';
 								if (text && (text.includes('ago') || text.includes('week') || text.includes('month') ||
-								    text.includes('year') || text.includes('day') || text.match(/\d{4}/))) {
+								    text.includes('year') || text.includes('day') || /^\d{4}$/.test(text) ||
+								    /\w+ \d{1,2}, \d{4}/.test(text))) {
 									relativeTime = text;
 									break;
 								}

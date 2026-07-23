@@ -288,6 +288,13 @@ func extractReviews(data []byte) []Review {
 		reviewsI = getNthElementAndCast[[]any](jd, 0)
 	}
 
+	// DEBUG: dump the raw first review element so we can identify the timestamp path
+	if len(reviewsI) > 0 {
+		if raw, err := json.MarshalIndent(reviewsI[0], "", "  "); err == nil {
+			fmt.Printf("DEBUG RPC first review element:\n%s\n", string(raw))
+		}
+	}
+
 	return parseReviews(reviewsI)
 }
 
@@ -486,6 +493,18 @@ func parseReviews(reviewsI []any) []Review {
 		if len(time) == 0 {
 			time = getNthElementAndCast[[]any](el, 2, 2, 0, 1, 6, 8)
 		}
+		if len(time) == 0 {
+			time = getNthElementAndCast[[]any](el, 2, 1, 0, 1, 21, 6, 8)
+		}
+		if len(time) == 0 {
+			time = getNthElementAndCast[[]any](el, 2, 1, 0, 1, 6, 8)
+		}
+		if len(time) == 0 {
+			time = getNthElementAndCast[[]any](el, 1, 2, 2, 0, 1, 21, 6, 8)
+		}
+		if len(time) == 0 {
+			time = getNthElementAndCast[[]any](el, 1, 2, 2, 0, 1, 6, 8)
+		}
 
 		// Try multiple paths for profile picture
 		profilePic, err := decodeURL(getNthElementAndCast[string](el, 1, 4, 5, 1))
@@ -523,16 +542,34 @@ func parseReviews(reviewsI []any) []Review {
 			}
 		}
 
+		when := func() string {
+			if len(time) >= 3 {
+				return fmt.Sprintf("%v-%v-%v", time[0], time[1], time[2])
+			}
+			// Fall back to the human-readable relative time string Google includes
+			for _, path := range [][]int{
+				{1, 6},
+				{1, 21, 6},
+				{2, 2, 0, 1, 21, 6, 13},
+				{2, 2, 0, 1, 6, 13},
+				{2, 2, 0, 1, 21, 28},
+				{2, 2, 0, 1, 28},
+			} {
+				if s := getNthElementAndCast[string](el, path...); s != "" {
+					return s
+				}
+			}
+			// DEBUG: all timestamp paths failed — dump the element so we can find the right path
+			if raw, err := json.MarshalIndent(el, "", "  "); err == nil {
+				fmt.Printf("DEBUG parseReviews: timestamp not found for author=%q, element:\n%s\n", authorName, string(raw))
+			}
+			return ""
+		}()
+
 		review := Review{
 			Name:           authorName,
 			ProfilePicture: profilePic,
-			When: func() string {
-				if len(time) < 3 {
-					return ""
-				}
-
-				return fmt.Sprintf("%v-%v-%v", time[0], time[1], time[2])
-			}(),
+			When:           when,
 			Rating:      rating,
 			Description: description,
 		}

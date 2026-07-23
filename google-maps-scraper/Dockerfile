@@ -12,16 +12,15 @@ RUN export PATH=$PATH:/usr/local/go/bin:/root/go/bin \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && go install github.com/playwright-community/playwright-go/cmd/playwright@latest \
+    && go install github.com/mxschmitt/playwright-go/cmd/playwright@v0.6100.0 \
     && mkdir -p /opt/browsers \
     && playwright install chromium --with-deps
 
 # Build stage
 FROM golang:1.26.2-trixie AS builder
 WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
 COPY . .
+RUN go mod download
 RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /usr/bin/google-maps-scraper
 
 # Final stage
