@@ -106,7 +106,8 @@ class FileGenerationService {
       { id: 'latest_review', title: 'Latest Review' },
       { id: 'notes', title: 'Notes' },
       { id: 'source_file', title: 'Source File' },
-      { id: 'created_at', title: 'Created At' }
+      { id: 'created_at', title: 'Created At' },
+      { id: 'updated_at', title: 'Updated At' }
     ];
 
     const csvWriter = createObjectCsvWriter({
@@ -146,7 +147,7 @@ class FileGenerationService {
         'id', 'name_of_business', 'type_of_business', 'sub_category',
         'business_address', 'city', 'state', 'zip_code', 'phone_number',
         'email', 'website', 'rating', 'num_reviews', 'latest_review',
-        'notes', 'source_file', 'created_at'
+        'notes', 'source_file', 'created_at', 'updated_at'
       ]
     });
 
@@ -168,7 +169,8 @@ class FileGenerationService {
       { wch: 30 },  // Latest Review
       { wch: 20 },  // Notes
       { wch: 15 },  // Source
-      { wch: 20 }   // Created At
+      { wch: 20 },  // Created At
+      { wch: 20 }   // Updated At
     ];
     worksheet['!cols'] = columnWidths;
 

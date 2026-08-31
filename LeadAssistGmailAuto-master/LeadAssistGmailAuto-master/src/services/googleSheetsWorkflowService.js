@@ -578,8 +578,9 @@ class GoogleSheetsWorkflowService {
               zip_code,
               state,
               city,
-              source_file
-            FROM leads 
+              source_file,
+              updated_at
+            FROM leads
             WHERE ${conditions.join(' OR ')}
             ORDER BY created_at DESC
           `;
@@ -1011,6 +1012,17 @@ class GoogleSheetsWorkflowService {
     return false;
   }
 
+  /**
+   * Format a lead's updated_at timestamp for the delivered list.
+   * Stored as 'YYYY-MM-DD HH:mm:ss' in SQLite; shown as a plain date.
+   */
+  formatUpdatedAt(updatedAt) {
+    if (!updatedAt) return '';
+
+    const parsed = moment(updatedAt, ['YYYY-MM-DD HH:mm:ss', moment.ISO_8601], true);
+    return parsed.isValid() ? parsed.format('YYYY-MM-DD') : '';
+  }
+
   async generateExcelFile(leads, outputPath) {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Leads');
@@ -1026,7 +1038,8 @@ class GoogleSheetsWorkflowService {
       { header: 'Rating', key: 'rating', width: 10 },
       { header: 'Latest Review', key: 'latest_review', width: 20 },
       { header: 'Business Address', key: 'business_address', width: 50 },
-      { header: 'Phone Number', key: 'phone_number', width: 15 }
+      { header: 'Phone Number', key: 'phone_number', width: 15 },
+      { header: 'Updated At', key: 'updated_at', width: 20 }
     ];
 
     worksheet.columns = columns;
@@ -1043,7 +1056,8 @@ class GoogleSheetsWorkflowService {
         rating: lead.rating || '',
         latest_review: lead.latest_review || '',
         business_address: lead.business_address || '',
-        phone_number: lead.phone_number || ''
+        phone_number: lead.phone_number || '',
+        updated_at: this.formatUpdatedAt(lead.updated_at)
       });
     });
 

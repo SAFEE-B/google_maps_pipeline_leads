@@ -146,6 +146,13 @@ class GoogleSheetsService {
           range: `${range}!K${rowNumber}`,
           values: [['Yes']]
         });
+
+        // Stamp the completion date in the first column (A)
+        const completionDate = new Date().toISOString().split('T')[0];
+        updates.push({
+          range: `${range}!A${rowNumber}`,
+          values: [[completionDate]]
+        });
       }
       
       if (status === 'failed') {

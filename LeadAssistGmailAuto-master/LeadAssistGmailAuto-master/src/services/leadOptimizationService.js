@@ -69,9 +69,9 @@ class LeadOptimizationService {
       const combinationDuration = Date.now() - combinationStartTime;
       this.logger.info(`🔍 Found ${foundCombinations.size} existing business type/location combinations in ${combinationDuration}ms`);
 
-      // Step 3: Find missing combinations
+      // Step 3: Build the scrape list (all combinations, nothing skipped)
       const missingCombinations = this.findMissingCombinations(allCombinations, foundCombinations);
-      this.logger.info(`🎯 Identified ${missingCombinations.length} missing combinations that need scraping`);
+      this.logger.info(`🎯 Queued ${missingCombinations.length} combinations for scraping`);
 
       // Step 4: Generate optimized queries
       optimizedQueries.push(...this.generateOptimizedQueries(missingCombinations));
@@ -450,21 +450,29 @@ class LeadOptimizationService {
   }
 
   findMissingCombinations(allCombinations, foundCombinations) {
-    const missingCombinations = [];
-    
+    // Every requested combination is scraped, including ones we already hold
+    // leads for. Re-scraping refreshes ratings, review counts and websites, and
+    // bumps updated_at so each list reports how fresh its leads are.
+    const combinations = [];
+    let alreadyHeldCount = 0;
+
     for (const combo of allCombinations) {
       const standardizedBizType = this.standardizeBusinessType(combo.businessType);
       const comboKey = `${standardizedBizType}|${combo.location}`;
-      
-      if (!foundCombinations.has(comboKey)) {
-        missingCombinations.push({
-          ...combo,
-          standardizedBusinessType: standardizedBizType
-        });
+
+      if (foundCombinations.has(comboKey)) {
+        alreadyHeldCount++;
       }
+
+      combinations.push({
+        ...combo,
+        standardizedBusinessType: standardizedBizType
+      });
     }
-    
-    return missingCombinations;
+
+    this.logger.info(`🔁 Scraping all ${combinations.length} combinations (${alreadyHeldCount} already have leads and will be refreshed)`);
+
+    return combinations;
   }
 
   generateOptimizedQueries(missingCombinations) {
@@ -478,7 +486,7 @@ class LeadOptimizationService {
         maxResults: combo.maxResults
       });
       
-      this.logger.info(`🎯 To Scrape: ${combo.businessType} in ${combo.location} (missing combination)`);
+      this.logger.info(`🎯 To Scrape: ${combo.businessType} in ${combo.location}`);
     }
     
     return optimizedQueries;

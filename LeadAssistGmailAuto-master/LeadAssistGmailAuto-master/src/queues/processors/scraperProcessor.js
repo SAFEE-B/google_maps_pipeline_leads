@@ -237,7 +237,7 @@ async function scraperProcessor(job) {
       originalQueries: queries.length,
       optimizedQueries: optimizedQueries.length,
       existingLeads: existingLeads.length,
-      skipReason: optimizedQueries.length === 0 ? 'All leads already exist' : 'Some leads missing'
+      skipReason: optimizedQueries.length === 0 ? 'No queries generated' : 'Scraping all requested combinations'
     });
 
     // Update progress
@@ -298,7 +298,7 @@ async function scraperProcessor(job) {
       
       scraperLogger.info(`🔍 Scraped ${newLeadsCount} new leads from CSV`);
     } else {
-      scraperLogger.info(`⚡ Skipping scraping - all requested leads already exist in database`);
+      scraperLogger.warn(`⚠️ No queries were generated for this job - nothing to scrape`);
     }
     
     if (job.progress) {
