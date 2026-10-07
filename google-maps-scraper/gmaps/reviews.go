@@ -353,6 +353,45 @@ func ConvertDOMReviewsToReviews(domReviews []DOMReview) []Review {
 	return reviews
 }
 
+// reviewsPanelSelectors are the candidate containers for the reviews panel,
+// in the same order used when picking a scroll container further down.
+var reviewsPanelSelectors = []string{
+	`.m6QErb.DxyBCb.kA9KIf.dS8AEf`,
+	`.m6QErb.DxyBCb.kA9KIf`,
+	`.DxyBCb.kA9KIf`,
+	`.m6QErb`,
+	`.section-scrollbox`,
+	`div[role="feed"]`,
+}
+
+// waitForReviewsPanel polls for any of the known reviews-panel containers to
+// appear, up to timeout or ctx cancellation, whichever comes first. This
+// replaces a fixed sleep that was too short on slower machines/networks and
+// too long (wasted time) on fast ones.
+func waitForReviewsPanel(ctx context.Context, page scrapemate.BrowserPage, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+
+	const pollInterval = 250 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		for _, sel := range reviewsPanelSelectors {
+			if err := page.WaitForSelector(sel, pollInterval); err == nil {
+				return nil
+			}
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for reviews panel after %s", timeout)
+		}
+	}
+}
+
 // extractReviewsFromPage extracts reviews directly from the page DOM
 // This is a fallback when the RPC API fails
 func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([]DOMReview, error) {
@@ -408,16 +447,23 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 		log.Printf("Clicked reviews via: %v", clickedReviews)
 	}
 
-	// Wait for reviews panel to load
-	time.Sleep(3 * time.Second)
+	// Wait for the reviews panel to actually appear instead of a fixed sleep -
+	// on a slow machine/network 3s is not always enough for the panel to render,
+	// which was causing review (and thus review date) extraction to silently come
+	// back empty.
+	const reviewsPanelTimeout = 15 * time.Second
+	if err := waitForReviewsPanel(ctx, page, reviewsPanelTimeout); err != nil {
+		log.Printf("Reviews panel did not appear in time: %v", err)
+	}
 
 	var reviews []DOMReview
 
-	maxScrollAttempts := 30
-	lastCount := 0
-	stuckCount := 0
+	const maxStuckDuration = 5 * time.Second
 
-	for attempt := 0; attempt < maxScrollAttempts; attempt++ {
+	lastCount := 0
+	lastProgress := time.Now()
+
+	for {
 		select {
 		case <-ctx.Done():
 			return reviews, ctx.Err()
@@ -692,13 +738,16 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 
 		currentCount := len(reviews)
 		if currentCount == lastCount {
-			stuckCount++
-			if stuckCount > 5 {
-				log.Printf("Review count stuck at %d, stopping scroll", currentCount)
+			// Use elapsed wall-clock time rather than a fixed number of
+			// iterations: on a slow machine/network each scroll+render cycle
+			// can take much longer, so a fixed iteration count made this give
+			// up before new reviews had a chance to actually load.
+			if time.Since(lastProgress) > maxStuckDuration {
+				log.Printf("Review count stuck at %d for %s, stopping scroll", currentCount, maxStuckDuration)
 				break
 			}
 		} else {
-			stuckCount = 0
+			lastProgress = time.Now()
 			lastCount = currentCount
 		}
 

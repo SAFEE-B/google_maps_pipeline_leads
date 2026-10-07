@@ -204,9 +204,17 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 }
 
 func (j *PlaceJob) getRaw(ctx context.Context, page scrapemate.BrowserPage) (any, error) {
+	var lastRaw any
+
 	for {
 		select {
 		case <-ctx.Done():
+			// Return the last non-empty payload we saw, even if the review
+			// fields never populated in time, rather than failing outright.
+			if lastRaw != nil {
+				return lastRaw, nil
+			}
+
 			return nil, fmt.Errorf("timeout while getting raw data: %w", ctx.Err())
 		default:
 			raw, err := page.Eval(js)
@@ -224,16 +232,41 @@ func (j *PlaceJob) getRaw(ctx context.Context, page scrapemate.BrowserPage) (any
 			}
 
 			// If it's a string, make sure it's not empty
-			if str, ok := raw.(string); ok {
-				if str == "" {
-					<-time.After(time.Millisecond * 200)
-					continue
-				}
+			str, ok := raw.(string)
+			if !ok || str == "" {
+				<-time.After(time.Millisecond * 200)
+				continue
 			}
 
-			return raw, nil
+			lastRaw = raw
+
+			// The APP_INITIALIZATION_STATE blob can arrive before Google has
+			// finished populating the review fields inside it (rating/review
+			// count render slightly after the base place data). Accepting it
+			// immediately produces entries with a 0 rating/review count on
+			// slower machines or networks, so keep polling within the same
+			// deadline until those fields show up or we run out of time.
+			if reviewFieldsPopulated([]byte(strings.TrimSpace(strings.TrimPrefix(str, `)]}'`)))) {
+				return raw, nil
+			}
+
+			<-time.After(time.Millisecond * 200)
 		}
 	}
+}
+
+// reviewFieldsPopulated reports whether the APP_INITIALIZATION_STATE JSON
+// already has a non-zero review count/rating. A place with genuinely zero
+// reviews also has review count 0, so this is a best-effort check only: it
+// just avoids racing ahead while Google is still filling in the fields for
+// places that do have reviews.
+func reviewFieldsPopulated(raw []byte) bool {
+	tmpEntry, err := EntryFromJSON(raw, true)
+	if err != nil {
+		return false
+	}
+
+	return tmpEntry.ReviewCount > 0
 }
 
 func (j *PlaceJob) extractJSON(page scrapemate.BrowserPage) ([]byte, error) {

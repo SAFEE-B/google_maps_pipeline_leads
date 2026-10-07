@@ -1,6 +1,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
@@ -52,20 +53,96 @@ function convertToRelativeDate(when) {
   return `${Math.floor(diffDays / 365)} years ago`;
 }
 
-async function ensureImageExists(image) {
-  const check = await new Promise((resolve) => {
+// Rebuilds on every run so Go source changes are always picked up; Docker's layer
+// cache makes this a few seconds when nothing changed. Falls back to the existing
+// image if the build fails (e.g. no network to pull base images).
+function imageId(image) {
+  return new Promise((resolve) => {
     const proc = spawn('docker', ['images', '-q', image], { stdio: ['ignore', 'pipe', 'ignore'] });
     let out = '';
     proc.stdout.on('data', (d) => { out += d.toString(); });
     proc.on('exit', () => resolve(out.trim()));
+    proc.on('error', () => resolve(''));
   });
+}
 
-  if (check) return;
+const SOURCE_HASH_LABEL = 'scraper.source-hash';
 
-  scraperLogger.info(`Docker image "${image}" not found — building from ${SCRAPER_DOCKERFILE_DIR}`);
+// Fingerprint of the scraper source; result CSVs don't affect the build.
+async function scraperSourceHash() {
+  const hash = crypto.createHash('sha256');
 
-  await new Promise((resolve, reject) => {
-    const proc = spawn('docker', ['build', '-t', image, SCRAPER_DOCKERFILE_DIR], {
+  async function walk(dir) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== '.git' && e.name !== 'node_modules') await walk(full);
+      } else if (e.isFile() && !e.name.endsWith('.csv')) {
+        hash.update(path.relative(SCRAPER_DOCKERFILE_DIR, full).replace(/\\/g, '/'));
+        hash.update('\0');
+        hash.update(await fs.readFile(full));
+        hash.update('\0');
+      }
+    }
+  }
+
+  await walk(SCRAPER_DOCKERFILE_DIR);
+  return hash.digest('hex');
+}
+
+function imageLabel(image, label) {
+  return new Promise((resolve) => {
+    const proc = spawn('docker', ['image', 'inspect', '--format', `{{ index .Config.Labels "${label}" }}`, image], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString(); });
+    proc.on('exit', () => resolve(out.trim()));
+    proc.on('error', () => resolve(''));
+  });
+}
+
+// Rebuilds only when the scraper source has changed since the image was built.
+async function ensureImageExists(image) {
+  const existing = await imageId(image);
+  const sourceHash = await scraperSourceHash();
+
+  if (existing && (await imageLabel(image, SOURCE_HASH_LABEL)) === sourceHash) {
+    scraperLogger.info(`Docker image "${image}" is up to date with scraper source — skipping build`);
+    return;
+  }
+
+  scraperLogger.info(`Scraper source changed — building Docker image "${image}" from ${SCRAPER_DOCKERFILE_DIR}`);
+
+  try {
+    await buildImage(image, sourceHash);
+  } catch (err) {
+    if (!existing) throw err;
+    scraperLogger.warn(`${err.message} — falling back to existing image "${image}", which may be outdated`);
+    return;
+  }
+
+  // A rebuild after a code change leaves the previous ~2GB image untagged; remove it
+  // so repeated rebuilds don't fill the disk. Fails harmlessly if a container uses it.
+  const current = await imageId(image);
+  if (existing && current && existing !== current) {
+    await new Promise((resolve) => {
+      const proc = spawn('docker', ['rmi', existing], { stdio: 'ignore' });
+      proc.on('exit', (code) => {
+        if (code === 0) scraperLogger.info(`Removed previous scraper image ${existing}`);
+        resolve();
+      });
+      proc.on('error', resolve);
+    });
+  }
+}
+
+function buildImage(image, sourceHash) {
+  return new Promise((resolve, reject) => {
+    const args = ['build', '-t', image, '--label', `${SOURCE_HASH_LABEL}=${sourceHash}`, SCRAPER_DOCKERFILE_DIR];
+    const proc = spawn('docker', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     proc.stdout.on('data', (d) => scraperLogger.info(`[docker:build] ${d.toString().trim()}`));

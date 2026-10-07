@@ -6,10 +6,12 @@ import (
 	"iter"
 	"math"
 	"net/url"
+	"regexp"
 	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Image struct {
@@ -156,18 +158,63 @@ func (e *Entry) Validate() error {
 	return nil
 }
 
+// LatestReviewDate returns the most recent review date as "YYYY-M-D".
+// Reviews are ordered by relevance, not date, and Google gives many of them
+// only as relative text ("2 years ago"), so every review is parsed and compared.
 func (e *Entry) LatestReviewDate() string {
-	for _, r := range e.UserReviewsExtended {
-		if r.When != "" {
-			return r.When
+	now := time.Now()
+
+	var latest time.Time
+
+	for _, reviews := range [][]Review{e.UserReviewsExtended, e.UserReviews} {
+		for _, r := range reviews {
+			if t, ok := parseReviewWhen(r.When, now); ok && t.After(latest) {
+				latest = t
+			}
 		}
 	}
-	for _, r := range e.UserReviews {
-		if r.When != "" {
-			return r.When
-		}
+
+	if latest.IsZero() {
+		return ""
 	}
-	return ""
+
+	return fmt.Sprintf("%d-%d-%d", latest.Year(), int(latest.Month()), latest.Day())
+}
+
+var relativeWhenRe = regexp.MustCompile(`(?i)\b(a|an|\d+)\s+(minute|hour|day|week|month|year)s?\s+ago\b`)
+
+func parseReviewWhen(when string, now time.Time) (time.Time, bool) {
+	when = strings.TrimSpace(when)
+	if when == "" {
+		return time.Time{}, false
+	}
+
+	if t, err := time.Parse("2006-1-2", when); err == nil {
+		return t, true
+	}
+
+	m := relativeWhenRe.FindStringSubmatch(when)
+	if m == nil {
+		return time.Time{}, false
+	}
+
+	n := 1
+	if v, err := strconv.Atoi(m[1]); err == nil {
+		n = v
+	}
+
+	switch strings.ToLower(m[2]) {
+	case "minute", "hour":
+		return now, true
+	case "day":
+		return now.AddDate(0, 0, -n), true
+	case "week":
+		return now.AddDate(0, 0, -7*n), true
+	case "month":
+		return now.AddDate(0, -n, 0), true
+	default: // year
+		return now.AddDate(-n, 0, 0), true
+	}
 }
 
 func (e *Entry) CsvHeaders() []string {
@@ -286,13 +333,6 @@ func extractReviews(data []byte) []Review {
 	if len(reviewsI) == 0 {
 		// Try alternative indices - Google may have changed the structure
 		reviewsI = getNthElementAndCast[[]any](jd, 0)
-	}
-
-	// DEBUG: dump the raw first review element so we can identify the timestamp path
-	if len(reviewsI) > 0 {
-		if raw, err := json.MarshalIndent(reviewsI[0], "", "  "); err == nil {
-			fmt.Printf("DEBUG RPC first review element:\n%s\n", string(raw))
-		}
 	}
 
 	return parseReviews(reviewsI)
@@ -558,10 +598,6 @@ func parseReviews(reviewsI []any) []Review {
 				if s := getNthElementAndCast[string](el, path...); s != "" {
 					return s
 				}
-			}
-			// DEBUG: all timestamp paths failed — dump the element so we can find the right path
-			if raw, err := json.MarshalIndent(el, "", "  "); err == nil {
-				fmt.Printf("DEBUG parseReviews: timestamp not found for author=%q, element:\n%s\n", authorName, string(raw))
 			}
 			return ""
 		}()

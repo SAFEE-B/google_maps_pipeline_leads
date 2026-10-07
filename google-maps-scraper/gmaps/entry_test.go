@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,35 @@ func createGoQueryFromFile(t *testing.T, path string) *goquery.Document {
 	require.NoError(t, err)
 
 	return doc
+}
+
+func Test_LatestReviewDate(t *testing.T) {
+	ymd := func(tm time.Time) string { return fmt.Sprintf("%d-%d-%d", tm.Year(), int(tm.Month()), tm.Day()) }
+	now := time.Now()
+
+	tests := []struct {
+		name    string
+		reviews []gmaps.Review
+		want    string
+	}{
+		{"none", nil, ""},
+		{"exact only", []gmaps.Review{{Name: "a", When: "2022-8-26"}}, "2022-8-26"},
+		{
+			"picks newest regardless of order",
+			[]gmaps.Review{{When: "7 years ago"}, {When: "2022-8-26"}, {When: "a year ago"}},
+			ymd(now.AddDate(-1, 0, 0)),
+		},
+		{"relative weeks", []gmaps.Review{{When: "3 weeks ago"}}, ymd(now.AddDate(0, 0, -21))},
+		{"edited prefix", []gmaps.Review{{When: "Edited 2 months ago"}}, ymd(now.AddDate(0, -2, 0))},
+		{"unparseable ignored", []gmaps.Review{{When: "???"}, {When: "2020-1-5"}}, "2020-1-5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := gmaps.Entry{UserReviews: tt.reviews}
+			require.Equal(t, tt.want, e.LatestReviewDate())
+		})
+	}
 }
 
 func Test_EntryFromJSON(t *testing.T) {
