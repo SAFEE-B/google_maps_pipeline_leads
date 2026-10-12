@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const path = require('path');
 const logger = require('../utils/logger');
+const { COUNTRY, isCanadianPostal, parseCountry } = require('../utils/locationUtils');
 
 class GoogleSheetsService {
   constructor() {
@@ -91,7 +92,14 @@ class GoogleSheetsService {
 
           // Parse cities/zipcodes
           jobRequest.locations = this.parseLocations(jobRequest.citiesZipcodes);
-          
+
+          // Canadian lists put "Canada" in the State column; the postal codes themselves
+          // also give it away, so a list is Canadian if either says so.
+          jobRequest.country = parseCountry(jobRequest.state)
+            || (jobRequest.locations.length > 0 && jobRequest.locations.every(isCanadianPostal)
+              ? COUNTRY.CANADA
+              : null);
+
           // Parse business types
           jobRequest.businessTypes = this.parseBusinessTypes(jobRequest.typesOfIndustries);
 

@@ -89,7 +89,9 @@ class FileGenerationService {
     }
 
     // Define CSV headers based on lead structure
+    // Updated At first, Notes last (same layout as the delivered Excel lists)
     const headers = [
+      { id: 'updated_at', title: 'Updated At' },
       { id: 'id', title: 'ID' },
       { id: 'name_of_business', title: 'Business Name' },
       { id: 'type_of_business', title: 'Business Type' },
@@ -104,10 +106,9 @@ class FileGenerationService {
       { id: 'rating', title: 'Rating' },
       { id: 'num_reviews', title: 'Review Count' },
       { id: 'latest_review', title: 'Latest Review' },
-      { id: 'notes', title: 'Notes' },
       { id: 'source_file', title: 'Source File' },
       { id: 'created_at', title: 'Created At' },
-      { id: 'updated_at', title: 'Updated At' }
+      { id: 'notes', title: 'Notes' }
     ];
 
     const csvWriter = createObjectCsvWriter({
@@ -144,15 +145,16 @@ class FileGenerationService {
     // Convert leads to worksheet
     const worksheet = XLSX.utils.json_to_sheet(processedLeads, {
       header: [
-        'id', 'name_of_business', 'type_of_business', 'sub_category',
+        'updated_at', 'id', 'name_of_business', 'type_of_business', 'sub_category',
         'business_address', 'city', 'state', 'zip_code', 'phone_number',
         'email', 'website', 'rating', 'num_reviews', 'latest_review',
-        'notes', 'source_file', 'created_at', 'updated_at'
+        'source_file', 'created_at', 'notes'
       ]
     });
 
-    // Set column widths
+    // Set column widths (same order as the header above)
     const columnWidths = [
+      { wch: 20 },  // Updated At
       { wch: 8 },   // ID
       { wch: 30 },  // Business Name
       { wch: 20 },  // Business Type
@@ -167,10 +169,9 @@ class FileGenerationService {
       { wch: 8 },   // Rating
       { wch: 8 },   // Reviews
       { wch: 30 },  // Latest Review
-      { wch: 20 },  // Notes
       { wch: 15 },  // Source
       { wch: 20 },  // Created At
-      { wch: 20 }   // Updated At
+      { wch: 20 }   // Notes
     ];
     worksheet['!cols'] = columnWidths;
 

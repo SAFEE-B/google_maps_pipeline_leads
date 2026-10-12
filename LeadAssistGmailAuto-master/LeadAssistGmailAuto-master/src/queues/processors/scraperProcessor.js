@@ -8,6 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const moment = require('moment');
 const googleSheetsWorkflowService = require('../../services/googleSheetsWorkflowService');
 const LeadOptimizationService = require('../../services/leadOptimizationService');
+const { parseCanadianAddress, formatLocationForSearch } = require('../../utils/locationUtils');
 const {
   groupQueriesByBusinessType,
   executeDockerScraper,
@@ -135,7 +136,12 @@ function cleanZipCode(zip) {
 // Helper function to extract state and zip code from address (similar to import_lead_files.js)
 function extractLocationFromScrapedAddress(address) {
   if (!address || typeof address !== 'string') return { city: null, state: null, zipCode: null };
-  
+
+  // Canadian addresses ("..., Surrey, BC V3V 3G7, Canada") have no 5-digit zip; without this
+  // the fallback below would store a street number such as 12160 as the zip code.
+  const canadian = parseCanadianAddress(address);
+  if (canadian) return canadian;
+
   // Common patterns for US addresses
   const stateZipPattern = /,\s*([A-Z]{2})\s+(\d{5}(-\d{4})?)/i; // Added i for case-insensitive state
   const statePattern = /,\s*([A-Z]{2})(?:\s|,|$)/i; // Added i for case-insensitive state
@@ -478,7 +484,8 @@ async function checkExistingLeadsAndOptimizeQueries(queries) {
             optimizedQueries.push({
               businessType: businessType,
               location: location,
-              query: `${businessType} in ${location}`,
+              country: query.country,
+              query: `${businessType} in ${formatLocationForSearch(location)}`,
               maxResults: query.maxResults || 15
             });
           }

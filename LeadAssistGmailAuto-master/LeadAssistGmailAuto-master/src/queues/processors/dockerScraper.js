@@ -7,6 +7,7 @@ const fsSync = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
 const { scraperLogger } = require('../../utils/logger');
+const { buildScraperQuery, resolveCountry } = require('../../utils/locationUtils');
 
 // Scraper source lives at the repo root (<repo-root>/google-maps-scraper), which is 5
 // levels up from this file (.../src/queues/processors). Anchored to __dirname so it
@@ -24,7 +25,8 @@ function groupQueriesByBusinessType(queries) {
   const groups = {};
   for (const q of queries) {
     if (!groups[q.businessType]) groups[q.businessType] = [];
-    const scraperLine = q.query.trim() + ' USA';
+    // "...in H2A" must be searched as "...in H2A Canada", not "...USA"
+    const scraperLine = buildScraperQuery(q.query, resolveCountry(q.location, q.country));
     groups[q.businessType].push(scraperLine);
   }
   return groups;

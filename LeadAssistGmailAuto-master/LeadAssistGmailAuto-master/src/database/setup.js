@@ -187,6 +187,7 @@ async function createTables() {
       name_of_list TEXT NOT NULL,
       business_types TEXT NOT NULL, -- JSON array
       locations TEXT NOT NULL, -- JSON array
+      country TEXT, -- 'USA' or 'Canada'; NULL on older rows (treated as USA)
       email TEXT, -- Confirmation email address
       confirmation_token TEXT,
       confirmation_status TEXT DEFAULT 'pending', -- 'pending', 'confirmed', 'cancelled'
@@ -310,6 +311,24 @@ async function addMissingColumns() {
           logger.error('Error creating index for job_id:', err);
           reject(err);
         } else {
+          resolve();
+        }
+      });
+    });
+
+    // Add country column to sheets_job_requests (Canadian lists)
+    await new Promise((resolve, reject) => {
+      db.run('ALTER TABLE sheets_job_requests ADD COLUMN country TEXT', (err) => {
+        if (err) {
+          if (err.message.includes('duplicate column name')) {
+            logger.debug('country column already exists in sheets_job_requests table');
+            resolve();
+          } else {
+            logger.error('Error adding country column to sheets_job_requests table:', err);
+            reject(err);
+          }
+        } else {
+          logger.info('Added country column to sheets_job_requests table');
           resolve();
         }
       });

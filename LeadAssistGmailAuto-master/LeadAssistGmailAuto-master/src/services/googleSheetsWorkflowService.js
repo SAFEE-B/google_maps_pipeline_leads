@@ -9,6 +9,12 @@ const gmailService = require('./gmailService');
 const { setupDatabase, runQuery, getOne, getAll } = require('../database/setup');
 const logger = require('../utils/logger');
 const { convertToRelativeDate } = require('../queues/processors/dockerScraper');
+const {
+  isUsZip,
+  isCanadianPostal,
+  normalizeCanadianPostal,
+  extractCanadianPostal
+} = require('../utils/locationUtils');
 
 // Sub-category filters for business type consolidation - CRITICAL for proper filtering
 const SUB_CATEGORY_FILTERS = {
@@ -160,9 +166,9 @@ class GoogleSheetsWorkflowService {
       // Store the request in database
       await runQuery(`
         INSERT INTO sheets_job_requests (
-          request_id, spreadsheet_id, row_number, name_of_list, 
-          business_types, locations, email, sheet_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          request_id, spreadsheet_id, row_number, name_of_list,
+          business_types, locations, country, email, sheet_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         requestId,
         config.spreadsheet_id,
@@ -170,6 +176,7 @@ class GoogleSheetsWorkflowService {
         request.nameOfList,
         JSON.stringify(request.businessTypes),
         JSON.stringify(request.locations),
+        request.country || null,
         process.env.TO_EMAIL || 'safee.bangash@gmail.com',
         'analyzing'
       ]);
@@ -229,16 +236,7 @@ class GoogleSheetsWorkflowService {
       const locations = JSON.parse(request.locations);
 
       // Generate all possible queries (combinations)
-      const queries = [];
-      businessTypes.forEach(businessType => {
-        locations.forEach(location => {
-          queries.push({
-            businessType,
-            location,
-            query: `${businessType} near ${location}`
-          });
-        });
-      });
+      const queries = this.generateSearchQueries(businessTypes, locations, request.country);
 
       // Use the new lead optimization service for analysis
       const LeadOptimizationService = require('./leadOptimizationService');
@@ -341,7 +339,7 @@ class GoogleSheetsWorkflowService {
       const scrapingJobId = uuidv4();
 
       // Generate search queries
-      const queries = this.generateSearchQueries(businessTypes, locations);
+      const queries = this.generateSearchQueries(businessTypes, locations, request.country);
 
       // Create scraping job record
       await runQuery(
@@ -516,9 +514,30 @@ class GoogleSheetsWorkflowService {
         
         batchCombinations.forEach(({ businessType, location }) => {
           // Improved location matching logic for more precise geographic targeting
-          const isZipCode = /^\d{5}(-\d{4})?$/.test(location.trim());
-          
-          if (isZipCode) {
+          const isZipCode = isUsZip(location);
+
+          if (isCanadianPostal(location)) {
+            // Canadian postal code or FSA ("H2A" / "H2A 1B2"). zip_code holds the full code
+            // for newly scraped leads, but older rows have none, so also look in the address,
+            // where the code always follows the province ("..., QC H2A 1B2, Canada").
+            const postal = normalizeCanadianPostal(location);
+            conditions.push(`
+              (
+                (LOWER(type_of_business) LIKE LOWER(?) OR LOWER(sub_category) LIKE LOWER(?))
+                AND (
+                  UPPER(zip_code) LIKE ?
+                  OR UPPER(business_address) LIKE ?
+                )
+              )
+            `);
+
+            params.push(
+              `%${businessType}%`,
+              `%${businessType}%`,
+              `${postal}%`,                // zip_code starts with the FSA / full code
+              `% ${postal}%`               // address has the code after a space
+            );
+          } else if (isZipCode) {
             // For zip codes: exact match on zip_code field + nearby city/address matching
             conditions.push(`
               (
@@ -1027,8 +1046,9 @@ class GoogleSheetsWorkflowService {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Leads');
 
-    // Define columns with proper widths - Source File moved to leftmost, Latest Review Date renamed
+    // Updated At is the first column; Notes is an empty, last column for the client to fill in
     const columns = [
+      { header: 'Updated At', key: 'updated_at', width: 20 },
       { header: 'Source File', key: 'source_file', width: 15 },
       { header: 'Type of Business', key: 'type_of_business', width: 20 },
       { header: 'Sub-Category', key: 'sub_category', width: 18 },
@@ -1039,7 +1059,7 @@ class GoogleSheetsWorkflowService {
       { header: 'Latest Review', key: 'latest_review', width: 20 },
       { header: 'Business Address', key: 'business_address', width: 50 },
       { header: 'Phone Number', key: 'phone_number', width: 15 },
-      { header: 'Updated At', key: 'updated_at', width: 20 }
+      { header: 'Notes', key: 'notes', width: 30 }
     ];
 
     worksheet.columns = columns;
@@ -1047,6 +1067,7 @@ class GoogleSheetsWorkflowService {
     // Add leads as rows with new column order
     leads.forEach(lead => {
       worksheet.addRow({
+        updated_at: this.formatUpdatedAt(lead.updated_at),
         source_file: this.getFirstSourceOnly(lead.source_file),
         type_of_business: lead.type_of_business || '',
         sub_category: lead.sub_category || '',
@@ -1057,7 +1078,7 @@ class GoogleSheetsWorkflowService {
         latest_review: lead.latest_review || '',
         business_address: lead.business_address || '',
         phone_number: lead.phone_number || '',
-        updated_at: this.formatUpdatedAt(lead.updated_at)
+        notes: ''
       });
     });
 
@@ -1140,7 +1161,7 @@ class GoogleSheetsWorkflowService {
     }
   }
 
-  generateSearchQueries(businessTypes, locations) {
+  generateSearchQueries(businessTypes, locations, country = null) {
     const queries = [];
 
     businessTypes.forEach(businessType => {
@@ -1148,6 +1169,7 @@ class GoogleSheetsWorkflowService {
         queries.push({
           businessType,
           location,
+          country: country || undefined,
           query: `${businessType} near ${location}`
         });
       });
@@ -1216,8 +1238,17 @@ class GoogleSheetsWorkflowService {
     
     // Check if the lead matches any of the requested locations in this batch
     return batchCombinations.some(({ location }) => {
-      const isZipCode = /^\d{5}(-\d{4})?$/.test(location.trim());
-      
+      const isZipCode = isUsZip(location);
+
+      if (isCanadianPostal(location)) {
+        // Compare postal codes, not substrings: "H2A" must not match "H2AB..." or a street name.
+        const wanted = normalizeCanadianPostal(location);
+        const leadPostal = (lead.zip_code && isCanadianPostal(lead.zip_code)
+          ? normalizeCanadianPostal(lead.zip_code)
+          : extractCanadianPostal(lead.business_address));
+        return !!leadPostal && leadPostal.startsWith(wanted);
+      }
+
       if (isZipCode) {
         // For zip codes: check exact match or prefix match
         const leadZip = lead.zip_code || '';

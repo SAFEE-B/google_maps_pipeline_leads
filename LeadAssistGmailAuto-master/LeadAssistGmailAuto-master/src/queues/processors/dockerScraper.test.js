@@ -30,6 +30,26 @@ describe('groupQueriesByBusinessType', () => {
   test('returns empty object for empty input', () => {
     expect(groupQueriesByBusinessType([])).toEqual({});
   });
+
+  test('searches Canadian postal codes with Canada, not USA', () => {
+    const queries = [
+      { businessType: 'nursing homes', location: 'h2a', query: 'nursing homes in H2A' },
+      { businessType: 'nursing homes', location: 'j4g', query: 'nursing homes in J4G' },
+    ];
+    expect(groupQueriesByBusinessType(queries)).toEqual({
+      'nursing homes': ['nursing homes in H2A Canada', 'nursing homes in J4G Canada'],
+    });
+  });
+
+  test('uses the list country for Canadian city names', () => {
+    const queries = [{ businessType: 'gyms', location: 'montreal', country: 'Canada', query: 'gyms in montreal' }];
+    expect(groupQueriesByBusinessType(queries)).toEqual({ gyms: ['gyms in montreal Canada'] });
+  });
+
+  test('still searches US zip codes with USA', () => {
+    const queries = [{ businessType: 'gyms', location: '90210', query: 'gyms in 90210' }];
+    expect(groupQueriesByBusinessType(queries)).toEqual({ gyms: ['gyms in 90210 USA'] });
+  });
 });
 
 describe('convertToRelativeDate', () => {

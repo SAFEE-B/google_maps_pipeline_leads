@@ -1,5 +1,22 @@
 const { queueLogger } = require('../utils/logger');
 const { getAll } = require('../database/setup');
+const {
+  isCanadianPostal,
+  isCanadianAddress,
+  normalizeCanadianPostal,
+  extractCanadianPostal,
+  formatLocationForSearch
+} = require('../utils/locationUtils');
+
+// SQL for a lead's location key: its 5-digit zip, or its Canadian FSA lower-cased
+// (combination keys are lower-cased, so "H2A 1B2" is keyed as "h2a").
+const LOCATION_KEY_SQL = `CASE
+            WHEN LENGTH(zip_code) >= 5 AND SUBSTR(zip_code, 1, 5) GLOB '[0-9][0-9][0-9][0-9][0-9]'
+            THEN SUBSTR(zip_code, 1, 5)
+            WHEN LENGTH(zip_code) >= 3 AND UPPER(SUBSTR(zip_code, 1, 3)) GLOB '[A-Z][0-9][A-Z]'
+            THEN LOWER(SUBSTR(zip_code, 1, 3))
+            ELSE NULL
+          END`;
 
 // Configuration based on Python script
 const CONSOLIDATED_RV_TYPES = new Set([
@@ -128,26 +145,18 @@ class LeadOptimizationService {
       // Optimized query that only gets combination data, not full lead records
       // Using SQLite-compatible syntax instead of REGEXP
       const query = `
-        SELECT DISTINCT 
+        SELECT DISTINCT
           LOWER(TRIM(type_of_business)) as business_type,
           LOWER(TRIM(city)) as city,
-          CASE 
-            WHEN LENGTH(zip_code) >= 5 AND SUBSTR(zip_code, 1, 5) GLOB '[0-9][0-9][0-9][0-9][0-9]' 
-            THEN SUBSTR(zip_code, 1, 5)
-            ELSE NULL 
-          END as zip_code
-        FROM leads 
+          ${LOCATION_KEY_SQL} as zip_code
+        FROM leads
         WHERE (
           LOWER(TRIM(type_of_business)) IN (${bizTypePlaceholders})
           OR LOWER(TRIM(sub_category)) IN (${bizTypePlaceholders})
         )
         AND (
           LOWER(TRIM(city)) IN (${locationPlaceholders})
-          OR CASE 
-            WHEN LENGTH(zip_code) >= 5 AND SUBSTR(zip_code, 1, 5) GLOB '[0-9][0-9][0-9][0-9][0-9]' 
-            THEN SUBSTR(zip_code, 1, 5)
-            ELSE NULL 
-          END IN (${locationPlaceholders})
+          OR ${LOCATION_KEY_SQL} IN (${locationPlaceholders})
         )
         LIMIT 100000
       `;
@@ -263,11 +272,7 @@ class LeadOptimizationService {
         )
         AND (
           LOWER(TRIM(city)) IN (${locationPlaceholders})
-          OR CASE 
-            WHEN LENGTH(zip_code) >= 5 AND SUBSTR(zip_code, 1, 5) GLOB '[0-9][0-9][0-9][0-9][0-9]' 
-            THEN SUBSTR(zip_code, 1, 5)
-            ELSE NULL 
-          END IN (${locationPlaceholders})
+          OR ${LOCATION_KEY_SQL} IN (${locationPlaceholders})
         )
         ORDER BY created_at DESC
         LIMIT 50000
@@ -360,6 +365,7 @@ class LeadOptimizationService {
           combinations.push({
             businessType: businessType.toLowerCase().trim(),
             location: location.toLowerCase().trim(),
+            country: query.country,
             maxResults: query.maxResults || 15,
             originalQuery: query
           });
@@ -439,7 +445,16 @@ class LeadOptimizationService {
 
   extractZipCode(lead) {
     let zipCode = (lead.zip_code || '').toString().trim();
-    
+
+    // Canadian leads are keyed by FSA, lower-cased ("H2A 1B2" -> "h2a"). Checked first because
+    // older Canadian rows can hold a street number in zip_code that looks like a US zip.
+    if (isCanadianPostal(zipCode) || isCanadianAddress(lead.business_address)) {
+      const postal = isCanadianPostal(zipCode)
+        ? normalizeCanadianPostal(zipCode)
+        : extractCanadianPostal(lead.business_address);
+      return postal ? postal.slice(0, 3).toLowerCase() : null;
+    }
+
     // Extract 5-digit zip code
     const zipMatch = zipCode.match(/\d{5}/);
     if (zipMatch) {
@@ -479,14 +494,18 @@ class LeadOptimizationService {
     const optimizedQueries = [];
     
     for (const combo of missingCombinations) {
+      // Postal codes read better (and search the same) upper-cased: "H2A", not "h2a"
+      const searchLocation = formatLocationForSearch(combo.location);
+
       optimizedQueries.push({
         businessType: combo.businessType,
         location: combo.location,
-        query: `${combo.businessType} in ${combo.location}`,
+        country: combo.country,
+        query: `${combo.businessType} in ${searchLocation}`,
         maxResults: combo.maxResults
       });
-      
-      this.logger.info(`🎯 To Scrape: ${combo.businessType} in ${combo.location}`);
+
+      this.logger.info(`🎯 To Scrape: ${combo.businessType} in ${searchLocation}`);
     }
     
     return optimizedQueries;
@@ -558,7 +577,8 @@ class LeadOptimizationService {
             optimizedQueries.push({
               businessType: businessType,
               location: location,
-              query: `${businessType} in ${location}`,
+              country: query.country,
+              query: `${businessType} in ${formatLocationForSearch(location)}`,
               maxResults: query.maxResults || 15
             });
           }
